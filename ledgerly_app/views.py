@@ -1,4 +1,5 @@
 
+import hashlib
 import os
 
 from plaid.model.credit_account_subtype import CreditAccountSubtype
@@ -18,7 +19,12 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from .plaid_init import get_plaid_client
 # Import schema to register the authentication extension
 from . import schema
-from .serializers import LinkTokenCreateSerializer, ExchangePublicTokenSerializer, TestAuthResponseSerializer
+from .serializers import (
+    LinkTokenCreateSerializer,
+    ExchangePublicTokenSerializer,
+    TestAuthResponseSerializer,
+    CreditScoreRequestSerializer,
+)
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
@@ -30,6 +36,8 @@ from plaid.model.transactions_recurring_get_request import TransactionsRecurring
 from plaid.model.transactions_recurring_get_request import TransactionsRecurringGetRequest
 from plaid.model.transactions_refresh_request import TransactionsRefreshRequest
 from plaid.model.institutions_get_by_id_request import InstitutionsGetByIdRequest
+from plaid.model.user_create_request import UserCreateRequest
+from plaid.model.cra_check_report_lend_score_get_request import CraCheckReportLendScoreGetRequest
 
 @extend_schema(
     description="Test authentication endpoint. Returns user details from Supabase token.",
@@ -42,6 +50,39 @@ def test_auth(request):
         "message": "You are authenticated!",
         "user_id": request.user.username,
         "email": request.user.email
+    })
+
+
+@extend_schema(
+    description="Get Plaid CRA LendScore (credit score) for a user.",
+    request=CreditScoreRequestSerializer,
+    parameters=[
+        OpenApiParameter("user_id", OpenApiTypes.STR, location=OpenApiParameter.QUERY, description="User ID (optional, for testing)"),
+        OpenApiParameter("plaid_user_id", OpenApiTypes.STR, location=OpenApiParameter.QUERY, description="Plaid user_id from /user/create (optional)"),
+    ],
+    responses={200: {"type": "object", "description": "Plaid LendScore response"}}
+)
+@api_view(['GET'])
+def get_credit_score(request):
+    user_id = request.user.username if request.user.is_authenticated else request.query_params.get('user_id')
+    plaid_user_id = request.query_params.get('plaid_user_id')
+
+    if not user_id and not plaid_user_id:
+        return Response(
+            {'error': 'User ID or plaid_user_id is required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Mock credit score deterministically per user.
+    basis = user_id or plaid_user_id
+    digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()
+    score = 600 + (int(digest[:8], 16) % 201)
+
+    return Response({
+        "user_id": user_id,
+        "plaid_user_id": plaid_user_id,
+        "credit_score": score,
+        "source": "mock",
     })
 
 @extend_schema(
