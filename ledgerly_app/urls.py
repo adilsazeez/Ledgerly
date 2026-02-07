@@ -13,4 +13,7 @@ urlpatterns = [
     path('refresh-transactions/', views.refresh_transactions, name='refresh_transactions'),
     path('connected-institutions/', views.get_connected_institutions, name='get_connected_institutions'),
     path('credit-score/', views.get_credit_score, name='get_credit_score'),
+    path('create-transaction/', views.create_sandbox_transaction, name='create_sandbox_transaction'),
+    path('subscriptions/', views.get_subscription_payments, name='get_subscription_payments'),
+    path('upcoming-payments/', views.get_upcoming_payments, name='get_upcoming_payments'),
 ]

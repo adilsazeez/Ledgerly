@@ -1,6 +1,8 @@
 
 import hashlib
 import os
+from datetime import date
+from datetime import date
 
 from plaid.model.credit_account_subtype import CreditAccountSubtype
 from plaid.model.credit_account_subtypes import CreditAccountSubtypes
@@ -24,6 +26,7 @@ from .serializers import (
     ExchangePublicTokenSerializer,
     TestAuthResponseSerializer,
     CreditScoreRequestSerializer,
+    SandboxTransactionCreateSerializer,
 )
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
@@ -38,6 +41,8 @@ from plaid.model.transactions_refresh_request import TransactionsRefreshRequest
 from plaid.model.institutions_get_by_id_request import InstitutionsGetByIdRequest
 from plaid.model.user_create_request import UserCreateRequest
 from plaid.model.cra_check_report_lend_score_get_request import CraCheckReportLendScoreGetRequest
+from plaid.model.custom_sandbox_transaction import CustomSandboxTransaction
+from plaid.model.sandbox_transactions_create_request import SandboxTransactionsCreateRequest
 
 @extend_schema(
     description="Test authentication endpoint. Returns user details from Supabase token.",
@@ -84,6 +89,167 @@ def get_credit_score(request):
         "credit_score": score,
         "source": "mock",
     })
+
+
+@extend_schema(
+    description="Get subscription payments for a user.",
+    parameters=[
+        OpenApiParameter("user_id", OpenApiTypes.STR, location=OpenApiParameter.QUERY, description="User ID (optional, for testing)"),
+    ],
+    responses={200: {"type": "array", "description": "Recurring subscription streams"}},
+)
+@api_view(['GET'])
+def get_subscription_payments(request):
+    user_id = request.user.username if request.user.is_authenticated else request.query_params.get('user_id')
+    if not user_id:
+        return Response(
+            {'error': 'User ID is required. Please authenticate or provide "user_id" in query params.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        url: str = os.environ.get("SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY")
+        supabase: Client = create_client(url, key)
+
+        response = supabase.table("user_plaid_items").select("access_token").eq("user_id", user_id).execute()
+        if not response.data or len(response.data) == 0:
+            return Response({'error': 'No Plaid access token found for user'}, status=status.HTTP_404_NOT_FOUND)
+
+        access_token = response.data[0]['access_token']
+        client = get_plaid_client()
+        request_plaid = TransactionsRecurringGetRequest(access_token=access_token)
+        response_plaid = client.transactions_recurring_get(request_plaid)
+
+        outflow_streams = response_plaid.to_dict().get('outflow_streams', [])
+
+        def is_subscription(stream: dict) -> bool:
+            primary = (stream.get('personal_finance_category_primary') or '').upper()
+            detailed = (stream.get('personal_finance_category_detailed') or '').upper()
+            description = (stream.get('description') or '').upper()
+            merchant = (stream.get('merchant_name') or '').upper()
+            return (
+                'SUBSCRIPTION' in primary
+                or 'SUBSCRIPTION' in detailed
+                or 'SUBSCRIPTION' in description
+                or 'SUBSCRIBE' in description
+                or 'SUBSCRIPTION' in merchant
+            )
+
+        subscriptions = [s for s in outflow_streams if s.get('is_active') and is_subscription(s)]
+
+        return Response(subscriptions)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    description="Get upcoming payments for a user.",
+    parameters=[
+        OpenApiParameter("user_id", OpenApiTypes.STR, location=OpenApiParameter.QUERY, description="User ID (optional, for testing)"),
+    ],
+    responses={200: {"type": "array", "description": "Upcoming recurring payments"}},
+)
+@api_view(['GET'])
+def get_upcoming_payments(request):
+    user_id = request.user.username if request.user.is_authenticated else request.query_params.get('user_id')
+    if not user_id:
+        return Response(
+            {'error': 'User ID is required. Please authenticate or provide "user_id" in query params.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        url: str = os.environ.get("SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY")
+        supabase: Client = create_client(url, key)
+
+        response = supabase.table("user_plaid_items").select("access_token").eq("user_id", user_id).execute()
+        if not response.data or len(response.data) == 0:
+            return Response({'error': 'No Plaid access token found for user'}, status=status.HTTP_404_NOT_FOUND)
+
+        access_token = response.data[0]['access_token']
+        client = get_plaid_client()
+        request_plaid = TransactionsRecurringGetRequest(access_token=access_token)
+        response_plaid = client.transactions_recurring_get(request_plaid)
+
+        outflow_streams = response_plaid.to_dict().get('outflow_streams', [])
+
+        upcoming = [
+            s for s in outflow_streams
+            if s.get('is_active') and s.get('predicted_next_date')
+        ]
+
+        def parse_predicted_date(value):
+            if not value:
+                return date.max
+            if isinstance(value, date):
+                return value
+            if hasattr(value, "date"):
+                return value.date()
+            return date.fromisoformat(str(value))
+
+        upcoming.sort(key=lambda s: parse_predicted_date(s.get('predicted_next_date')))
+
+        return Response(upcoming)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    description="Add a sandbox transaction for a user's Plaid item.",
+    request=SandboxTransactionCreateSerializer,
+    responses={200: {"type": "object", "description": "Sandbox transaction create response"}},
+)
+@api_view(['POST'])
+def create_sandbox_transaction(request):
+    user_id = request.user.username if request.user.is_authenticated else request.data.get('user_id')
+    if not user_id:
+        return Response(
+            {'error': 'User ID is required. Please authenticate or provide "user_id" in body.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    amount = request.data.get('amount')
+    description = request.data.get('description')
+    date_transacted = request.data.get('date_transacted')
+    date_posted = request.data.get('date_posted')
+    iso_currency_code = request.data.get('iso_currency_code') or "USD"
+
+    if amount is None or description is None:
+        return Response(
+            {'error': 'amount and description are required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        url: str = os.environ.get("SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY")
+        supabase: Client = create_client(url, key)
+
+        response = supabase.table("user_plaid_items").select("access_token").eq("user_id", user_id).execute()
+        if not response.data or len(response.data) == 0:
+            return Response({'error': 'No Plaid access token found for user'}, status=status.HTTP_404_NOT_FOUND)
+
+        access_token = response.data[0]['access_token']
+        client = get_plaid_client()
+
+        tx = CustomSandboxTransaction(
+            date_transacted=date.fromisoformat(date_transacted) if date_transacted else date.today(),
+            date_posted=date.fromisoformat(date_posted) if date_posted else date.today(),
+            amount=float(amount),
+            description=str(description),
+            iso_currency_code=str(iso_currency_code),
+        )
+
+        create_request = SandboxTransactionsCreateRequest(
+            access_token=access_token,
+            transactions=[tx],
+        )
+        create_response = client.sandbox_transactions_create(create_request)
+        return Response(create_response.to_dict())
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @extend_schema(
     description="Create a Plaid Link Token.",
