@@ -8,6 +8,9 @@ def get_plaid_client():
     secret = os.getenv('PLAID_SECRET')
     environment = os.getenv('PLAID_ENV', 'sandbox')
 
+    if not client_id or not secret:
+        raise ValueError("Missing PLAID_CLIENT_ID or PLAID_SECRET in environment")
+
     # Debug print: Remove this once it works!
     print(f"Loading Plaid with Client ID: {client_id}")
 

@@ -87,8 +87,8 @@ def exchange_public_token(request):
         item_id = exchange_response['item_id']
         
         # Store in Supabase
-        url: str = os.environ.get("SUPABASE_URL")
-        key: str = os.environ.get("SUPABASE_KEY")
+        url: str = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY") or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
         supabase: Client = create_client(url, key)
 
         # Get user_id from authenticated user OR request body (for testing)
@@ -160,8 +160,8 @@ def check_plaid_status(request):
          return Response({'error': 'User ID is required. Please authenticate or provide "user_id" in query params.'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        url: str = os.environ.get("SUPABASE_URL")
-        key: str = os.environ.get("SUPABASE_KEY")
+        url: str = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY") or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
         supabase: Client = create_client(url, key)
         
         response = supabase.table("user_plaid_items").select("*", count="exact").eq("user_id", user_id).execute()

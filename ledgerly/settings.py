@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "ledgerly_app",
     "rest_framework",
     "drf_spectacular",
@@ -47,7 +48,9 @@ INSTALLED_APPS = [
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load local env first, then fall back to .env.
+load_dotenv(BASE_DIR / ".env.local")
+load_dotenv(BASE_DIR / ".env")
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -69,12 +72,16 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Allow local frontend during development.
+CORS_ALLOW_ALL_ORIGINS = True
 
 ROOT_URLCONF = "ledgerly.urls"
 

@@ -6,3 +6,4 @@ plaid-python
 drf-spectacular
 gunicorn
 whitenoise
+django-cors-headers
