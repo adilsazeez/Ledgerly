@@ -27,7 +27,9 @@ from plaid.model.country_code import CountryCode
 from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
 from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from plaid.model.transactions_recurring_get_request import TransactionsRecurringGetRequest
+from plaid.model.transactions_recurring_get_request import TransactionsRecurringGetRequest
 from plaid.model.transactions_refresh_request import TransactionsRefreshRequest
+from plaid.model.institutions_get_by_id_request import InstitutionsGetByIdRequest
 
 @extend_schema(
     description="Test authentication endpoint. Returns user details from Supabase token.",
@@ -416,6 +418,72 @@ def refresh_transactions(request):
         response_plaid = client.transactions_refresh(request_plaid)
 
         return Response(response_plaid.to_dict())
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+@extend_schema(
+    description="Get connected institutions for the user.",
+    parameters=[
+        OpenApiParameter("user_id", OpenApiTypes.STR, location=OpenApiParameter.QUERY, description="User ID (optional, for testing)")
+    ],
+    responses={200: {"type": "array", "items": {"type": "object", "properties": {
+        "institution_name": {"type": "string"},
+        "institution_id": {"type": "string"},
+        "is_connected": {"type": "boolean"}
+    }}}}
+)
+@api_view(['GET'])
+def get_connected_institutions(request):
+    # Get user_id from authenticated user OR query param (for testing)
+    user_id = None
+    if request.user.is_authenticated:
+        user_id = request.user.username
+    else:
+        user_id = request.query_params.get('user_id')
+
+    if not user_id:
+         return Response({'error': 'User ID is required. Please authenticate or provide "user_id" in query params.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        url: str = os.environ.get("SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY")
+        supabase: Client = create_client(url, key)
+        
+        # Get all items for user
+        response = supabase.table("user_plaid_items").select("institution_id").eq("user_id", user_id).execute()
+        
+        connected_institutions = []
+        client = get_plaid_client()
+
+        if response.data:
+            for item in response.data:
+                institution_id = item.get('institution_id')
+                if institution_id:
+                    try:
+                        request_plaid = InstitutionsGetByIdRequest(
+                            institution_id=institution_id,
+                            country_codes=[CountryCode('US')]
+                        )
+                        response_plaid = client.institutions_get_by_id(request_plaid)
+                        institution = response_plaid['institution']
+                        
+                        connected_institutions.append({
+                            "institution_name": institution.name,
+                            "institution_id": institution.institution_id,
+                            "is_connected": True
+                        })
+                    except Exception as e:
+                        print(f"Error fetching institution details for {institution_id}: {e}")
+                        # Optionally handle error, maybe still return ID
+                        connected_institutions.append({
+                            "institution_name": "Unknown Institution",
+                            "institution_id": institution_id,
+                            "is_connected": True,
+                            "error": str(e)
+                        })
+        
+        return Response(connected_institutions)
 
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

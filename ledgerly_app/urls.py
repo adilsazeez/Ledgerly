@@ -11,4 +11,5 @@ urlpatterns = [
     path('get-transactions/', views.get_transactions, name='get_transactions'),
     path('plaid-webhook/', views.handle_plaid_webhook, name='plaid-webhook'),
     path('refresh-transactions/', views.refresh_transactions, name='refresh_transactions'),
+    path('connected-institutions/', views.get_connected_institutions, name='get_connected_institutions'),
 ]
