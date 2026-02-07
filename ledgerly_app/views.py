@@ -56,7 +56,7 @@ def create_link_token(request):
             country_codes=[CountryCode('US')],
             language='en',
             user=LinkTokenCreateRequestUser(
-                client_user_id='user_good'
+                client_user_id=user_id
             )
         )
         response = client.link_token_create(request_plaid)
