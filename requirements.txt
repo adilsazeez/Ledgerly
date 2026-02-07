@@ -1,0 +1,6 @@
+Django==6.0.2
+supabase==2.27.3
+djangorestframework==3.16.1
+python-dotenv==1.2.1
+plaid-python==38.1.0
+drf-spectacular==0.29.0
