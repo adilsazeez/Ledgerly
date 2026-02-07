@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from supabase import create_client, Client
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from .plaid_init import get_plaid_client
 # Import schema to register the authentication extension
 from . import schema
@@ -139,3 +139,38 @@ from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCr
 #
 #     except Exception as e:
 #         return Response({'error': str(e)}, status=400)
+
+@extend_schema(
+    description="Check if user has connected to Plaid.",
+    parameters=[
+        OpenApiParameter("user_id", OpenApiTypes.STR, location=OpenApiParameter.QUERY, description="User ID (optional, for testing)")
+    ],
+    responses={200: {"type": "object", "properties": {"is_connected": {"type": "boolean"}}}}
+)
+@api_view(['GET'])
+def check_plaid_status(request):
+    # Get user_id from authenticated user OR query param (for testing)
+    user_id = None
+    if request.user.is_authenticated:
+        user_id = request.user.username
+    else:
+        user_id = request.query_params.get('user_id')
+
+    if not user_id:
+         return Response({'error': 'User ID is required. Please authenticate or provide "user_id" in query params.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        url: str = os.environ.get("SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY")
+        supabase: Client = create_client(url, key)
+        
+        response = supabase.table("user_plaid_items").select("*", count="exact").eq("user_id", user_id).execute()
+        
+        is_connected = False
+        if response.count and response.count > 0:
+            is_connected = True
+            
+        return Response({'is_connected': is_connected})
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
